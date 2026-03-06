@@ -236,7 +236,7 @@ mod implementation {
             F: std::future::Future<Output = Result<T>>,
         {
             if let Ok(handle) = Handle::try_current() {
-                handle.block_on(f)
+                tokio::task::block_in_place(|| handle.block_on(f))
             } else {
                 let rt = tokio::runtime::Builder::new_current_thread()
                     .enable_all()

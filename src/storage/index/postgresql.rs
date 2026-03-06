@@ -32,6 +32,11 @@ mod implementation {
     use tokio_postgres_rustls::MakeRustlsConnect;
 
     /// Embedded migrations compiled into the binary.
+    ///
+    /// Migration v1 uses a trigger-based approach for the `search_vector` column
+    /// instead of `GENERATED ALWAYS AS` because `to_tsvector()` is STABLE, not
+    /// IMMUTABLE, and PostgreSQL 18+ enforces immutability for generated columns.
+    /// The trigger approach works across all PostgreSQL versions (12+).
     const MIGRATIONS: &[Migration] = &[
         Migration {
             version: 1,
@@ -46,11 +51,22 @@ mod implementation {
                     tags TEXT[] DEFAULT '{}',
                     created_at BIGINT NOT NULL,
                     updated_at BIGINT NOT NULL,
-                    search_vector TSVECTOR GENERATED ALWAYS AS (
-                        setweight(to_tsvector('english', coalesce(content, '')), 'A') ||
-                        setweight(to_tsvector('english', coalesce(array_to_string(tags, ' '), '')), 'B')
-                    ) STORED
+                    search_vector TSVECTOR
                 );
+
+                CREATE OR REPLACE FUNCTION {table}_search_vector_update() RETURNS trigger AS $$
+                BEGIN
+                    NEW.search_vector :=
+                        setweight(to_tsvector('english', coalesce(NEW.content, '')), 'A') ||
+                        setweight(to_tsvector('english', coalesce(array_to_string(NEW.tags, ' '), '')), 'B');
+                    RETURN NEW;
+                END
+                $$ LANGUAGE plpgsql;
+
+                DROP TRIGGER IF EXISTS {table}_search_vector_trigger ON {table};
+                CREATE TRIGGER {table}_search_vector_trigger
+                    BEFORE INSERT OR UPDATE ON {table}
+                    FOR EACH ROW EXECUTE FUNCTION {table}_search_vector_update()
             ",
         },
         Migration {
@@ -387,7 +403,7 @@ mod implementation {
             F: std::future::Future<Output = Result<T>>,
         {
             if let Ok(handle) = Handle::try_current() {
-                handle.block_on(f)
+                tokio::task::block_in_place(|| handle.block_on(f))
             } else {
                 let rt = tokio::runtime::Builder::new_current_thread()
                     .enable_all()

@@ -14,13 +14,12 @@ mod implementation {
     use tokio_postgres::NoTls;
 
     /// Embedded migrations compiled into the binary.
-    /// Note: Migration 1 assumes pgvector extension is already installed.
-    /// Run `CREATE EXTENSION IF NOT EXISTS vector;` before using this backend.
     const MIGRATIONS: &[Migration] = &[
         Migration {
             version: 1,
             description: "Initial vectors table",
             sql: r"
+                CREATE EXTENSION IF NOT EXISTS vector;
                 CREATE TABLE IF NOT EXISTS {table} (
                     id TEXT PRIMARY KEY,
                     embedding vector(384),
@@ -162,7 +161,7 @@ mod implementation {
             F: std::future::Future<Output = Result<T>>,
         {
             if let Ok(handle) = Handle::try_current() {
-                handle.block_on(f)
+                tokio::task::block_in_place(|| handle.block_on(f))
             } else {
                 let rt = tokio::runtime::Builder::new_current_thread()
                     .enable_all()
@@ -200,7 +199,7 @@ mod implementation {
 
             let upsert = format!(
                 r"INSERT INTO {} (id, embedding)
-                VALUES ($1, $2::vector)
+                VALUES ($1, $2::text::vector)
                 ON CONFLICT (id) DO UPDATE SET
                     embedding = EXCLUDED.embedding",
                 self.table_name
@@ -240,10 +239,10 @@ mod implementation {
             let (namespace_clause, namespace_params) = Self::build_namespace_filter(filter);
 
             let search_query = format!(
-                r"SELECT id, 1 - (embedding <=> $1::vector) as similarity
+                r"SELECT id, 1 - (embedding <=> $1::text::vector) as similarity
                 FROM {}
                 {}
-                ORDER BY embedding <=> $1::vector
+                ORDER BY embedding <=> $1::text::vector
                 LIMIT {}",
                 self.table_name, namespace_clause, limit
             );

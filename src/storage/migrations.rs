@@ -202,21 +202,34 @@ mod implementation {
                     cause: e.to_string(),
                 })?;
 
-            // Execute all statements within the transaction
-            for statement in sql.split(';') {
-                let statement = statement.trim();
-                if statement.is_empty() {
-                    continue;
-                }
-
-                tx.execute(statement, &[])
+            // Execute all statements within the transaction.
+            // Uses dollar-quote-aware splitting so PL/pgSQL function
+            // bodies containing semicolons are not split incorrectly.
+            for statement in split_sql_statements(&sql) {
+                tx.execute(statement.as_str(), &[])
                     .await
-                    .map_err(|e| Error::OperationFailed {
-                        operation: format!(
-                            "migration_v{}: {}",
-                            migration.version, migration.description
-                        ),
-                        cause: e.to_string(),
+                    .map_err(|e| {
+                        // tokio_postgres::Error Display impl only shows "db error"
+                        // for database errors — use Debug format to include the
+                        // actual message, detail, and hint from PostgreSQL.
+                        let cause = if let Some(db_err) = e.as_db_error() {
+                            format!(
+                                "{}: {} (detail: {:?}, hint: {:?})",
+                                db_err.severity(),
+                                db_err.message(),
+                                db_err.detail(),
+                                db_err.hint(),
+                            )
+                        } else {
+                            e.to_string()
+                        };
+                        Error::OperationFailed {
+                            operation: format!(
+                                "migration_v{}: {}",
+                                migration.version, migration.description
+                            ),
+                            cause,
+                        }
                     })?;
             }
 
@@ -246,6 +259,42 @@ mod implementation {
 
             Ok(())
         }
+    }
+
+    /// Splits SQL text into individual statements, respecting `$$` dollar-quoted blocks.
+    ///
+    /// PL/pgSQL function bodies use `$$ ... $$` delimiters and contain semicolons
+    /// that should NOT be treated as statement separators. This function tracks
+    /// whether we're inside a dollar-quoted block and only splits on semicolons
+    /// that are outside such blocks.
+    fn split_sql_statements(sql: &str) -> Vec<String> {
+        let mut statements = Vec::new();
+        let mut current = String::new();
+        let mut in_dollar_quote = false;
+        let mut chars = sql.chars().peekable();
+
+        while let Some(ch) = chars.next() {
+            if ch == '$' && chars.peek() == Some(&'$') {
+                current.push(ch);
+                current.push(chars.next().unwrap());
+                in_dollar_quote = !in_dollar_quote;
+            } else if ch == ';' && !in_dollar_quote {
+                let trimmed = current.trim().to_string();
+                if !trimmed.is_empty() {
+                    statements.push(trimmed);
+                }
+                current.clear();
+            } else {
+                current.push(ch);
+            }
+        }
+
+        let trimmed = current.trim().to_string();
+        if !trimmed.is_empty() {
+            statements.push(trimmed);
+        }
+
+        statements
     }
 
     /// Maximum version across a set of migrations.
