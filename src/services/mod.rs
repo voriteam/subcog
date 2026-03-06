@@ -348,8 +348,12 @@ impl ServiceContainer {
         // Create storage paths using user-level data directory (project facets)
         let paths = PathManager::for_user(&user_data_dir);
 
-        // Create backends using factory (centralizes initialization logic)
-        let backends = BackendFactory::create_all(&paths.index_path(), &paths.vector_path());
+        // Create backends using factory, routing to PostgreSQL if configured
+        let backends = BackendFactory::create_from_config(
+            &subcog_config.storage.project,
+            &paths.index_path(),
+            &paths.vector_path(),
+        );
 
         // Build LLM provider for entity extraction with longer timeout (120s default)
         let llm_provider = build_llm_provider_for_entity_extraction(&subcog_config);
@@ -437,8 +441,12 @@ impl ServiceContainer {
         capture_config.features.auto_extract_entities =
             subcog_config.features.auto_extract_entities;
 
-        // Create backends using factory (centralizes initialization logic)
-        let backends = BackendFactory::create_all(&paths.index_path(), &paths.vector_path());
+        // Create backends using factory, routing to PostgreSQL if configured
+        let backends = BackendFactory::create_from_config(
+            &subcog_config.storage.user,
+            &paths.index_path(),
+            &paths.vector_path(),
+        );
 
         // Build LLM provider for entity extraction with longer timeout (120s default)
         let llm_provider = build_llm_provider_for_entity_extraction(&subcog_config);

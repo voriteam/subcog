@@ -509,67 +509,63 @@ mod stub {
     use crate::{Error, Result};
 
     /// Stub PostgreSQL backend when feature is not enabled.
-    pub struct PostgresBackend {
-        connection_url: String,
-        table_name: String,
-    }
+    ///
+    /// All constructors return `Error::FeatureNotEnabled`. To use PostgreSQL,
+    /// rebuild with: `cargo build --features postgres`
+    #[derive(Debug)]
+    pub struct PostgresBackend;
 
     impl PostgresBackend {
         /// Creates a new PostgreSQL backend (stub).
-        #[must_use]
-        pub fn new(connection_url: impl Into<String>, table_name: impl Into<String>) -> Self {
-            Self {
-                connection_url: connection_url.into(),
-                table_name: table_name.into(),
-            }
+        ///
+        /// # Errors
+        ///
+        /// Returns `Error::FeatureNotEnabled` because the `postgres` feature is not enabled.
+        pub fn new(
+            _connection_url: impl Into<String>,
+            _table_name: impl Into<String>,
+        ) -> Result<Self> {
+            Err(Error::FeatureNotEnabled("postgres".to_string()))
         }
 
         /// Creates a new PostgreSQL backend with configurable pool size (stub).
         ///
-        /// The pool size is ignored in the stub - requires `postgres` feature.
-        #[must_use]
+        /// # Errors
+        ///
+        /// Returns `Error::FeatureNotEnabled` because the `postgres` feature is not enabled.
         pub fn with_pool_size(
             connection_url: impl Into<String>,
             table_name: impl Into<String>,
             _pool_max_size: Option<usize>,
-        ) -> Self {
+        ) -> Result<Self> {
             Self::new(connection_url, table_name)
         }
 
         /// Creates a backend with default settings (stub).
-        #[must_use]
-        pub fn with_defaults() -> Self {
+        ///
+        /// # Errors
+        ///
+        /// Returns `Error::FeatureNotEnabled` because the `postgres` feature is not enabled.
+        pub fn with_defaults() -> Result<Self> {
             Self::new("postgresql://localhost/subcog", "memories")
         }
     }
 
     impl PersistenceBackend for PostgresBackend {
         fn store(&self, _memory: &Memory) -> Result<()> {
-            Err(Error::NotImplemented(format!(
-                "PostgresBackend::store to {} on {}",
-                self.table_name, self.connection_url
-            )))
+            Err(Error::FeatureNotEnabled("postgres".to_string()))
         }
 
         fn get(&self, _id: &MemoryId) -> Result<Option<Memory>> {
-            Err(Error::NotImplemented(format!(
-                "PostgresBackend::get from {} on {}",
-                self.table_name, self.connection_url
-            )))
+            Err(Error::FeatureNotEnabled("postgres".to_string()))
         }
 
         fn delete(&self, _id: &MemoryId) -> Result<bool> {
-            Err(Error::NotImplemented(format!(
-                "PostgresBackend::delete from {} on {}",
-                self.table_name, self.connection_url
-            )))
+            Err(Error::FeatureNotEnabled("postgres".to_string()))
         }
 
         fn list_ids(&self) -> Result<Vec<MemoryId>> {
-            Err(Error::NotImplemented(format!(
-                "PostgresBackend::list_ids from {} on {}",
-                self.table_name, self.connection_url
-            )))
+            Err(Error::FeatureNotEnabled("postgres".to_string()))
         }
     }
 }
@@ -860,59 +856,32 @@ mod stub_tests {
     }
 
     #[test]
-    fn test_stub_store_returns_not_implemented() {
-        let backend = PostgresBackend::with_defaults();
-        let memory = create_test_memory();
-        let result = backend.store(&memory);
+    fn test_stub_new_returns_feature_not_enabled() {
+        let result = PostgresBackend::new("postgresql://custom", "custom_table");
         assert!(result.is_err());
         assert!(matches!(
             result.unwrap_err(),
-            crate::Error::NotImplemented(_)
+            crate::Error::FeatureNotEnabled(_)
         ));
     }
 
     #[test]
-    fn test_stub_get_returns_not_implemented() {
-        let backend = PostgresBackend::with_defaults();
-        let result = backend.get(&MemoryId::new("test"));
+    fn test_stub_with_pool_size_returns_feature_not_enabled() {
+        let result = PostgresBackend::with_pool_size("postgresql://custom", "custom_table", Some(10));
         assert!(result.is_err());
         assert!(matches!(
             result.unwrap_err(),
-            crate::Error::NotImplemented(_)
+            crate::Error::FeatureNotEnabled(_)
         ));
     }
 
     #[test]
-    fn test_stub_delete_returns_not_implemented() {
-        let backend = PostgresBackend::with_defaults();
-        let result = backend.delete(&MemoryId::new("test"));
+    fn test_stub_with_defaults_returns_feature_not_enabled() {
+        let result = PostgresBackend::with_defaults();
         assert!(result.is_err());
         assert!(matches!(
             result.unwrap_err(),
-            crate::Error::NotImplemented(_)
+            crate::Error::FeatureNotEnabled(_)
         ));
-    }
-
-    #[test]
-    fn test_stub_list_ids_returns_not_implemented() {
-        let backend = PostgresBackend::with_defaults();
-        let result = backend.list_ids();
-        assert!(result.is_err());
-        assert!(matches!(
-            result.unwrap_err(),
-            crate::Error::NotImplemented(_)
-        ));
-    }
-
-    #[test]
-    fn test_stub_new_creates_instance() {
-        // Stub constructor always succeeds (returns stub, not Result)
-        let _backend = PostgresBackend::new("postgresql://custom", "custom_table");
-    }
-
-    #[test]
-    fn test_stub_with_defaults_creates_instance() {
-        // with_defaults() always succeeds (returns stub, not Result)
-        let _backend = PostgresBackend::with_defaults();
     }
 }

@@ -250,7 +250,7 @@ pub fn cmd_consolidate(
     use subcog::models::Namespace;
     use subcog::services::{ConsolidationService, ServiceContainer};
     use subcog::storage::index::SqliteBackend;
-    use subcog::storage::persistence::FilesystemBackend;
+    use subcog::storage::persistence::{FilesystemBackend, PostgresBackend};
 
     println!("Running memory consolidation...");
     println!();
@@ -427,8 +427,28 @@ pub fn cmd_consolidate(
             )?;
         },
         StorageBackendType::PostgreSQL => {
-            eprintln!("PostgreSQL consolidation not yet implemented");
-            return Err("PostgreSQL consolidation not yet implemented".into());
+            let connection_string = storage_config
+                .connection_string
+                .as_deref()
+                .ok_or("PostgreSQL backend requires a connection_string in config")?;
+
+            let backend = PostgresBackend::with_pool_size(
+                connection_string,
+                "memories",
+                storage_config.pool_max_size,
+            )?;
+            let mut service = ConsolidationService::new(backend).with_index(Arc::clone(&index));
+
+            if let Some(llm) = llm_provider {
+                service = service.with_llm(llm);
+            }
+
+            run_consolidation(
+                &mut service,
+                &recall_service,
+                &consolidation_config,
+                dry_run,
+            )?;
         },
         StorageBackendType::Redis => {
             eprintln!("Redis consolidation not yet implemented");
